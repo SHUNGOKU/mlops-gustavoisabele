@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Classificador de spam</title>
+<style>
+  :root {
+    --fundo: #eef1f6;
+    --painel: #ffffff;
+    --tinta: #16213a;
+    --suave: #5b667f;
+    --linha: #d3d9e6;
+    --azul: #2447c9;
+    --spam: #c8321f;
+    --ok: #1c7a4a;
+    --alerta: #fdeceb;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--fundo);
+    color: var(--tinta);
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.5;
+  }
+  .pagina { max-width: 880px; margin: 0 auto; padding: 24px 16px 48px; }
+
+  header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+  h1 { font-size: 1.6rem; margin: 0; letter-spacing: -0.01em; }
+  .selos { display: flex; gap: 8px; flex-wrap: wrap; }
+  .selo { border: 1px solid var(--linha); background: var(--painel); border-radius: 999px; padding: 4px 12px; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 6px; }
+  .ponto { width: 9px; height: 9px; border-radius: 50%; background: var(--suave); }
+  .selo.ok .ponto { background: var(--ok); }
+  .selo.falha .ponto { background: var(--spam); }
+
+  .grade { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 700px) { .grade { grid-template-columns: 1fr; } }
+  .painel { background: var(--painel); border: 1px solid var(--linha); border-radius: 10px; padding: 18px; }
+  h2 { font-size: 1rem; margin: 0 0 14px; }
+
+  label { display: block; font-size: 0.9rem; font-weight: 600; margin: 0 0 4px; }
+  input, textarea { width: 100%; font: inherit; color: inherit; border: 1px solid var(--linha); border-radius: 6px; padding: 9px 10px; background: #fff; }
+  textarea { resize: vertical; min-height: 120px; }
+  .campo { margin-bottom: 14px; }
+  .dica { font-size: 0.8rem; color: var(--suave); margin: 4px 0 0; }
+
+  button { font: inherit; cursor: pointer; border-radius: 6px; padding: 9px 14px; border: 1px solid var(--linha); background: #fff; color: var(--tinta); }
+  button.principal { background: var(--azul); border-color: var(--azul); color: #fff; font-weight: 600; }
+  button:disabled { opacity: 0.6; cursor: wait; }
+  .acoes { display: flex; flex-wrap: wrap; gap: 8px; }
+  :focus-visible { outline: 3px solid #8aa2ff; outline-offset: 2px; }
+
+  .resultado-vazio { color: var(--suave); }
+  .rotulo { display: inline-block; font-size: 1.4rem; font-weight: 700; padding: 2px 14px; border-radius: 6px; color: #fff; }
+  .rotulo.spam { background: var(--spam); }
+  .rotulo.nao_spam { background: var(--ok); }
+  .tempo { color: var(--suave); font-size: 0.85rem; margin-left: 8px; }
+  .barra { height: 12px; background: var(--fundo); border: 1px solid var(--linha); border-radius: 6px; overflow: hidden; margin: 6px 0; }
+  .barra > div { height: 100%; width: 0; background: var(--azul); }
+  .rotulo-prob { font-weight: 600; margin-top: 16px; }
+  .versao-resposta { color: var(--suave); font-size: 0.9rem; margin-top: 10px; }
+
+  .erro { background: var(--alerta); border: 1px solid #f0b8b2; color: #7d1f13; border-radius: 6px; padding: 10px 12px; }
+</style>
+</head>
+<body>
+<div class="pagina">
+
+  <header>
+    <h1>Classificador de spam</h1>
+    <div class="selos">
+      <span class="selo" id="selo-versao">versão …</span>
+      <span class="selo" id="selo-estado"><span class="ponto"></span><span id="texto-estado">verificando…</span></span>
+    </div>
+  </header>
+
+  <div class="grade">
+    <section class="painel" aria-labelledby="titulo-entrada">
+      <h2 id="titulo-entrada">Testar uma mensagem</h2>
+
+      <div class="campo">
+        <label for="chave">Chave de API</label>
+        <input id="chave" type="password" autocomplete="off" placeholder="Digite a chave">
+        <p class="dica">A chave não fica salva na página nem no código.</p>
+      </div>
+
+      <div class="campo">
+        <label for="texto">Mensagem</label>
+        <textarea id="texto" placeholder="Cole ou escreva a mensagem aqui"></textarea>
+      </div>
+
+      <div class="acoes">
+        <button class="principal" id="classificar">Classificar</button>
+        <button id="ex-spam" type="button">Exemplo de spam</button>
+        <button id="ex-comum" type="button">Exemplo comum</button>
+      </div>
+    </section>
+
+    <section class="painel" aria-labelledby="titulo-resultado" aria-live="polite">
+      <h2 id="titulo-resultado">Resultado</h2>
+      <div id="resultado"><p class="resultado-vazio">Escreva uma mensagem e toque em Classificar.</p></div>
+    </section>
+  </div>
+
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  const EXEMPLO_SPAM = "Parabéns! Você ganhou um prêmio de R$ 5.000. Clique no link agora para resgatar.";
+  const EXEMPLO_COMUM = "Oi, tudo bem? Podemos remarcar nossa reunião para amanhã às 14h?";
+
+  function mostrarErro(mensagem) {
+    const caixa = document.createElement("div");
+    caixa.className = "erro";
+    caixa.textContent = mensagem;
+    $("resultado").replaceChildren(caixa);
+  }
+
+  async function verificarServico() {
+    const estado = $("selo-estado");
+    try {
+      const r = await fetch("/health");
+      if (!r.ok) throw new Error("status " + r.status);
+      const d = await r.json();
+      $("selo-versao").textContent = "versão " + d.versao;
+      $("texto-estado").textContent = "Serviço OK";
+      estado.className = "selo ok";
+    } catch (e) {
+      $("selo-versao").textContent = "versão ?";
+      $("texto-estado").textContent = "Serviço fora do ar";
+      estado.className = "selo falha";
+    }
+  }
+
+  async function classificar() {
+    const texto = $("texto").value.trim();
+    const chave = $("chave").value;
+
+    if (!texto) {
+      mostrarErro("Escreva uma mensagem antes de classificar.");
+      return;
+    }
+
+    const botao = $("classificar");
+    botao.disabled = true;
+    const inicio = performance.now();
+
+    try {
+      const headers = { "Content-Type": "application/json" };
+      if (chave) headers["X-API-Key"] = chave;
+
+      const r = await fetch("/predict", {
+        method: "POST",
+        headers: headers,
+        body: JSON.stringify({ texto: texto })
+      });
+      const ms = Math.round(performance.now() - inicio);
+
+      if (r.status === 401) {
+        mostrarErro("Chave de API inválida ou ausente (erro 401). Confira a chave e tente de novo.");
+      } else if (r.status >= 500) {
+        mostrarErro("Erro no servidor (" + r.status + "). Tente novamente em instantes.");
+      } else if (!r.ok) {
+        mostrarErro("A API recusou a mensagem (erro " + r.status + "). Verifique o texto enviado.");
+      } else {
+        mostrarResultado(await r.json(), ms);
+      }
+    } catch (e) {
+      mostrarErro("Não foi possível falar com a API. Ela pode estar fora do ar ou iniciando; tente de novo em um minuto.");
+    } finally {
+      botao.disabled = false;
+      verificarServico();
+    }
+  }
+
+  function mostrarResultado(d, ms) {
+    const ehSpam = d.rotulo === "spam";
+    const pct = Math.round(d.probabilidade * 100);
+
+    const rotulo = document.createElement("span");
+    rotulo.className = "rotulo " + (ehSpam ? "spam" : "nao_spam");
+    rotulo.textContent = ehSpam ? "spam" : "não spam";
+
+    const tempo = document.createElement("span");
+    tempo.className = "tempo";
+    tempo.textContent = "resposta em " + ms + " ms";
+
+    const linha1 = document.createElement("div");
+    linha1.append(rotulo, tempo);
+
+    const titulo = document.createElement("div");
+    titulo.className = "rotulo-prob";
+    titulo.textContent = "Probabilidade: " + d.probabilidade.toFixed(2).replace(".", ",");
+
+    const barra = document.createElement("div");
+    barra.className = "barra";
+    const preench = document.createElement("div");
+    preench.style.width = pct + "%";
+    barra.append(preench);
+
+    const versao = document.createElement("div");
+    versao.className = "versao-resposta";
+    versao.textContent = "Respondido pela versão " + d.versao;
+
+    $("resultado").replaceChildren(linha1, titulo, barra, versao);
+  }
+
+  $("classificar").addEventListener("click", classificar);
+  $("ex-spam").addEventListener("click", () => { $("texto").value = EXEMPLO_SPAM; });
+  $("ex-comum").addEventListener("click", () => { $("texto").value = EXEMPLO_COMUM; });
+
+  verificarServico();
+</script>
+</body>
+</html>
