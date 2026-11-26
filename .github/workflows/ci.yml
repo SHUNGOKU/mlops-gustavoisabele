@@ -1,4 +1,3 @@
-
 name: Pipeline CI/CD - Classificador de Spam
 
 on:
@@ -85,6 +84,19 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
+    
     steps:
-      - name: Aguardar configuracao do deploy
-        run: echo "Etapas anteriores aprovadas. Deploy sera configurado na proxima etapa."
+      - name: Acionar deploy no Render
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK" ]; then
+            echo "Erro: Deploy Hook nao configurado."
+            exit 1
+          fi
+
+          curl --fail --silent --show-error \
+            --request POST \
+            "$RENDER_DEPLOY_HOOK"
+
+          echo "Solicitacao de deploy enviada ao Render!"
